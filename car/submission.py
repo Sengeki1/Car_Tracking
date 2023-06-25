@@ -52,7 +52,7 @@ class ExactInference:
 
     def observe(self, agentX: int, agentY: int, observedDist: float) -> None:
         # BEGIN_YOUR_CODE (our solution is 7 lines of code, but don't worry if you deviate from this)
-        Sonar = 10.0
+        Sonar = Const.SONAR_STD
         for row in range(self.belief.numRows):
             for col in range(self.belief.numCols):
                 carX = util.colToX(col)
@@ -87,19 +87,20 @@ class ExactInference:
         if self.skipElapse: ### ONLY FOR THE GRADER TO USE IN Problem 1
             return
         # BEGIN_YOUR_CODE (our solution is 7 lines of code, but don't worry if you deviate from this)
-        newBelief = Belief(self.belief.numRows, self.belief.numCols)
-        for row in range(self.belief.numRows):
-            for col in range(self.belief.numCols):
-                oldTile = (row, col)
-                for newRow in range(self.belief.numRows):
-                    for newCol in range(self.belief.numCols):
-                        newTile = (newRow, newCol)
+        # Create a new belief grid to store the updated probabilities
+        newBelief = util.Belief(self.belief.getNumRows(), self.belief.getNumCols())
+        for row in range(newBelief.getNumRows()):
+            for col in range(newBelief.getNumCols()):
+                newProb = 0.0
+                for oldRow in range(self.belief.getNumRows()):
+                    for oldCol in range(self.belief.getNumCols()):
+                        oldTile = (oldRow, oldCol)
+                        newTile = (row, col)
                         if (oldTile, newTile) in self.transProb:
                             transProb = self.transProb[(oldTile, newTile)]
-                        else:
-                            transProb = 0.0
-                        oldProb = self.belief.getProb(row, col)
-                        newBelief.addProb(newRow, newCol, oldProb * transProb)
+                            oldProb = self.belief.getProb(oldRow, oldCol)
+                            newProb += oldProb * transProb
+                newBelief.setProb(row, col, newProb)
         newBelief.normalize()
         self.belief = newBelief
         # END_YOUR_CODE
@@ -203,28 +204,21 @@ class ParticleFilter:
     ##################################################################################
     def observe(self, agentX: int, agentY: int, observedDist: float) -> None:
         # BEGIN_YOUR_CODE (our solution is 13 lines of code, but don't worry if you deviate from this)
-        newParticles = {}
-        totalWeight = 0.0
+        for tile in self.particles:
+            row, col = tile
+            carX = util.colToX(col)
+            carY = util.rowToY(row)
+            trueDist = math.sqrt((agentX - carX) ** 2 + (agentY - carY) ** 2)
+            probDist = util.pdf(observedDist, Const.SONAR_STD, trueDist)
+            self.particles[tile] *= probDist
 
-        # Re-weight particles based on observation
-        for particle in self.particles:
-            row, col = particle
-            deltaX = agentX - util.colToX(col)
-            deltaY = agentY - util.rowToY(row)
-            trueDist = math.sqrt(deltaX ** 2 + deltaY ** 2)
-            weight = util.pdf(trueDist, Const.SONAR_STD, observedDist)
-            newParticles[particle] = weight
-            totalWeight += weight
-
-        # Normalize weights
-        for particle in newParticles:
-            newParticles[particle] /= totalWeight
-
-        # Resample particles
-        self.particles = {}
+        # Re-sample the particles
+        newParticles = collections.defaultdict(int)
         for _ in range(self.NUM_PARTICLES):
-            particle = util.weightedRandomChoice(newParticles)
-            self.particles[particle] = self.particles.get(particle, 0) + 1
+            particle = util.weightedRandomChoice(self.particles)
+            newParticles[particle] += 1
+
+        self.particles = newParticles
         # END_YOUR_CODE
 
         self.updateBelief()
@@ -254,20 +248,14 @@ class ParticleFilter:
     ##################################################################################
     def elapseTime(self) -> None:
         # BEGIN_YOUR_CODE (our solution is 6 lines of code, but don't worry if you deviate from this)
-        newParticles = {}
-
-    # Propose new particle locations based on transition model
+        newParticles = collections.defaultdict(int)
         for particle in self.particles:
-            oldRow, oldCol = particle
-            newTileProbs = self.transProbDict[(oldRow, oldCol)]
-            for newRow, newCol in newTileProbs:
-                prob = newTileProbs[(newRow, newCol)]
-                newParticle = (newRow, newCol)
-                newParticles[newParticle] = newParticles.get(newParticle, 0) + prob
-
-        self.particles = newParticles
-        self.updateBelief()
+            for _ in range(self.particles[particle]):
+                newRow, newCol = util.weightedRandomChoice(self.transProbDict[particle])
+                newParticles[(newRow, newCol)] += 1
         # END_YOUR_CODE
+
+        self.updateBelief()
 
     # Function: Get Belief
     # ---------------------
